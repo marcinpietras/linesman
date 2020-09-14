@@ -38,6 +38,9 @@ import com.hockeyengine.quickshift.core.PluginException;
  * @author mpietras
  *
  */
+//TODO 1. last stats in report
+//TODO 2. single notification
+//TODO 3. fs filtering
 @Component
 public class IceOasisWatcher implements Plugin {
 
