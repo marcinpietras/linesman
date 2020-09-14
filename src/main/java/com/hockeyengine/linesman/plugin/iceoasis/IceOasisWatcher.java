@@ -38,7 +38,6 @@ import com.hockeyengine.quickshift.core.PluginException;
  * @author mpietras
  *
  */
-//TODO 1. last stats in report
 //TODO 2. single notification
 //TODO 3. fs filtering
 @Component
@@ -57,6 +56,8 @@ public class IceOasisWatcher implements Plugin {
 	private AmazonSNSClient snsClient = new AmazonSNSClient();
 
 	private Scheduler scheduler;
+	
+	private List<String> lastExecutionLog = new ArrayList<String>();
 
 	@Override
 	public void init() {
@@ -73,33 +74,39 @@ public class IceOasisWatcher implements Plugin {
 	@Override
 	public String helthCheck() throws PluginException {
 		logger.info("Healthchecking plugin iceOasisWatcher");
-		watchIceOasisForStickNShoot();
-		watchIceOasisForFreestyle();
-		return "Healthcheck success";
+		Map<String, String> context = new HashMap<String, String>();
+		context.put("mode", "test");
+		watchIceOasis(context);
+		return "Healthcheck success. Last execution log: " + this.lastExecutionLog;
 	}
 	
 	@Override
 	public String getReport() throws PluginException {
 		logger.info("Getting report from plugin iceOasisWatcher");
+		Map<String, String> context = new HashMap<String, String>();
+		
 		StringBuilder report = new StringBuilder();
 		report.append("Cron job set to ");
 		report.append(CRON_EXPRESSION);
 		report.append(" is running: ");
 		try {
-			report.append(this.scheduler.checkExists(createWatchJobDetail().getKey()));
+			report.append(this.scheduler.checkExists(createWatchJobDetail(context).getKey()));
 		} catch (SchedulerException e) {
 			throw new PluginException("Stopping plugin iceOasisWatcher fail", e);
 		}
+		report.append(". Last execution log: ");
+		report.append(this.lastExecutionLog);
 		return report.toString();
 	}
 
 	@Override
 	public String start() throws PluginException {
 		logger.info("Starting plugin iceOasisWatcher");
+		Map<String, String> context = new HashMap<String, String>();
 
 		Trigger trigger = TriggerBuilder.newTrigger().withIdentity("cronTrigger1", "group1")
 				.withSchedule(CronScheduleBuilder.cronSchedule(CRON_EXPRESSION)).build();
-		JobDetail watchJobDetail = createWatchJobDetail();
+		JobDetail watchJobDetail = createWatchJobDetail(context);
 		try {
 			if (this.scheduler.checkExists(watchJobDetail.getKey())) {
 				this.scheduler.deleteJob(watchJobDetail.getKey());
@@ -115,7 +122,9 @@ public class IceOasisWatcher implements Plugin {
 	@Override
 	public String stop() throws PluginException {
 		logger.info("Stopping plugin iceOasisWatcher");
-		JobDetail watchJobDetail = createWatchJobDetail();
+		Map<String, String> context = new HashMap<String, String>();
+		
+		JobDetail watchJobDetail = createWatchJobDetail(context);
 		try {
 			if (this.scheduler.checkExists(watchJobDetail.getKey())) {
 				this.scheduler.deleteJob(watchJobDetail.getKey());
@@ -125,46 +134,87 @@ public class IceOasisWatcher implements Plugin {
 		}
 		return "IceOasisWatcher stopped";
 	}
-
-	public void watchIceOasisForStickNShoot() throws PluginException {
-		String eventName = "Stick N Shoot";
-		List<DayIO> schedule = checkScheduleFor(eventName);
-		if (schedule.isEmpty()) {
-			logger.info("There is nothing to notify about event {}", eventName);
-		} else {
-			notifyAboutEvents(eventName, schedule);
-		}
-	}
-
-	public void watchIceOasisForFreestyle() throws PluginException {
-		String eventName = "Figure Skating FreeStyle 60 Minutes";
-		List<DayIO> schedule = checkScheduleFor(eventName);
-
-		String eventName2 = "Figure Skating FREESTYLE 90 Minutes";
-		List<DayIO> schedule2 = checkScheduleFor(eventName2);
+	
+	public void watchIceOasis(Map<String, String> context) throws PluginException {
+		List<String> executionLog = new ArrayList<String>();
+		executionLog.add("Context=" + context.toString());
 		
-		if (schedule.isEmpty() && schedule2.isEmpty()) {
+		String htmlSchedule = getIceOasisHtmlSchedule(executionLog, context);
+		List<DayIO> schedule = htmlToSchedule(htmlSchedule, executionLog, context);
+//		logger.info("IceOasis schedule: " + schedule);
+		
+		// Stick N Shoot
+		String eventName = "Stick N Shoot";
+		List<DayIO> filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
+		if (filteredSchedule.isEmpty()) {
+			executionLog.add("Notification=There is nothing to notify about event " + eventName);
 			logger.info("There is nothing to notify about event {}", eventName);
 		} else {
-			notifyAboutEvents(eventName + " / " + eventName2, schedule);
+			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
 		}
+		
+		// Figure Skating FreeStyle 60 Minutes
+		eventName = "Figure Skating FreeStyle 60 Minutes";
+		filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
+		if (filteredSchedule.isEmpty()) {
+			executionLog.add("Notification=There is nothing to notify about event " + eventName);
+			logger.info("There is nothing to notify about event {}", eventName);
+		} else {
+			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
+		}
+		
+		// Figure Skating FREESTYLE 90 Minutes
+		eventName = "Skating FREESTYLE 90 Minutes";
+		filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
+		if (filteredSchedule.isEmpty()) {
+			executionLog.add("Notification=There is nothing to notify about event " + eventName);
+			logger.info("There is nothing to notify about event {}", eventName);
+		} else {
+			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
+		}
+		this.lastExecutionLog = executionLog;
+		
 	}
 
-	private List<DayIO> checkScheduleFor(String eventName) throws PluginException {
-		logger.info("Checking IceOasis schedule");
-		Stopwatch stopwatch = Stopwatch.createStarted();
-		String htmlSchedule = getIceOasisHtmlSchedule();
-		List<DayIO> schedule = htmlToSchedule(htmlSchedule);
-//		logger.info("IceOasis schedule: " + schedule);
+//	public void watchIceOasisForStickNShoot() throws PluginException {
+//		String eventName = "Stick N Shoot";
+//		List<DayIO> schedule = checkScheduleFor(eventName);
+//		if (schedule.isEmpty()) {
+//			logger.info("There is nothing to notify about event {}", eventName);
+//		} else {
+//			notifyAboutEvents(eventName, schedule);
+//		}
+//	}
+//
+//	public void watchIceOasisForFreestyle() throws PluginException {
+//		String eventName = "Figure Skating FreeStyle 60 Minutes";
+//		List<DayIO> schedule = checkScheduleFor(eventName);
+//
+//		String eventName2 = "Figure Skating FREESTYLE 90 Minutes";
+//		List<DayIO> schedule2 = checkScheduleFor(eventName2);
+//		
+//		if (schedule.isEmpty() && schedule2.isEmpty()) {
+//			logger.info("There is nothing to notify about event {}", eventName);
+//		} else {
+//			notifyAboutEvents(eventName + " / " + eventName2, schedule);
+//		}
+//	}
 
-		List<DayIO> filteredSchedule = filterOpenScheduleByName(eventName, schedule);
-//		logger.info("Filtered schedule: " + filteredSchedule);
+//	private List<DayIO> checkScheduleFor(String eventName) throws PluginException {
+//		logger.info("Checking IceOasis schedule");
+//		Stopwatch stopwatch = Stopwatch.createStarted();
+//		String htmlSchedule = getIceOasisHtmlSchedule();
+//		List<DayIO> schedule = htmlToSchedule(htmlSchedule);
+////		logger.info("IceOasis schedule: " + schedule);
+//
+//		List<DayIO> filteredSchedule = filterOpenScheduleByName(eventName, schedule);
+////		logger.info("Filtered schedule: " + filteredSchedule);
+//
+//		logger.info("Checking IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
+//		return filteredSchedule;
+//	}
 
-		logger.info("Checking IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
-		return filteredSchedule;
-	}
-
-	private List<DayIO> filterOpenScheduleByName(String name, List<DayIO> sourceSchedule) {
+	private List<DayIO> filterOpenScheduleByName(String name, List<DayIO> sourceSchedule, List<String> executionLog, Map<String, String> context) {
 		List<DayIO> filteredSchedule = new ArrayList<DayIO>();
 		int filteredNumberOfSessions = 0;
 
@@ -181,15 +231,18 @@ public class IceOasisWatcher implements Plugin {
 				filteredSchedule.add(newDay);
 			}
 		}
-
-		logger.info("Filtered schedule for key {}: {} days, {} sessions", name, filteredSchedule.size(),
+		executionLog.add("FilterOpenSchedule=Success: Filtered schedule for name " + name + ": " + filteredSchedule.size() + " days, " + filteredNumberOfSessions + " sessions");
+		logger.info("Filtered schedule for name {}: {} days, {} sessions", name, filteredSchedule.size(),
 				filteredNumberOfSessions);
 		return filteredSchedule;
 	}
 
-	private void notifyAboutEvents(String eventName, List<DayIO> schedule) {
+	private void notifyAboutEvents(String eventName, List<DayIO> schedule, List<String> executionLog, Map<String, String> context) {
 		logger.info("Notifing about event {}, schedule {}", eventName, schedule);
 		StringBuilder message = new StringBuilder();
+		if ("test".equalsIgnoreCase(context.get("mode"))) {
+			message.append("TEST ");
+		}
 		message.append("HockeyEngine Linesman found open events ");
 		message.append(eventName);
 		message.append(". Schedule at ");
@@ -197,6 +250,7 @@ public class IceOasisWatcher implements Plugin {
 
 		String phoneNumber = "+13023454133";
 		sendSMSMessage(message.toString(), phoneNumber);
+		executionLog.add("Notification=Success");
 	}
 
 	public void sendSMSMessage(String message, String phoneNumber) {
@@ -212,18 +266,20 @@ public class IceOasisWatcher implements Plugin {
 		logger.info("Send SMS message result: {}", result);
 	}
 
-	private String getIceOasisHtmlSchedule() throws PluginException {
+	private String getIceOasisHtmlSchedule(List<String> executionLog, Map<String, String> context) throws PluginException {
 		try {
 			Stopwatch stopwatch = Stopwatch.createStarted();
 			String html = restTemplate.getForObject(SCHEDULE_URL, String.class);
 			logger.info("Getting IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
+			executionLog.add("GetIceOawsisSchedule=Success");
 			return html;
 		} catch (Exception e) {
+			executionLog.add("GetIceOawsisSchedule=Error");
 			throw new PluginException("Getting IceOasis schedule fail", e);
 		}
 	}
 
-	private List<DayIO> htmlToSchedule(String html) {
+	private List<DayIO> htmlToSchedule(String html, List<String> executionLog, Map<String, String> context) {
 		List<DayIO> days = new ArrayList<DayIO>();
 		Document doc = Jsoup.parse(html);
 		Elements tableBody = doc.select("tbody");
@@ -250,13 +306,15 @@ public class IceOasisWatcher implements Plugin {
 //				logger.info("DayIO: " + dayIO);
 			}
 		}
+		executionLog.add("ParseHTML=Success: Found schedule for " + days.size() + " days, " + totalNumberOfSessions + " sessions in total");
 		logger.info("Found schedule for {} days, {} sessions in total", days.size(), totalNumberOfSessions);
 		return days;
 	}
 
-	private JobDetail createWatchJobDetail() {
+	private JobDetail createWatchJobDetail(Map<String, String> context) {
 		JobDetail watchJobDetail = JobBuilder.newJob(WatchJob.class).withIdentity("WatchJob1", "group1").build();
 		watchJobDetail.getJobDataMap().put("plugin", this);
+		watchJobDetail.getJobDataMap().put("context", context);
 		return watchJobDetail;
 	}
 

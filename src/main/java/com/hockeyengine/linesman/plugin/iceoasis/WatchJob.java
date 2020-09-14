@@ -1,5 +1,7 @@
 package com.hockeyengine.linesman.plugin.iceoasis;
 
+import java.util.Map;
+
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
 import org.quartz.JobExecutionException;
@@ -15,8 +17,9 @@ public class WatchJob implements Job {
 	@Override
 	public void execute(JobExecutionContext jobExecutionContext) throws JobExecutionException {
 		IceOasisWatcher iceOasisWatcher = (IceOasisWatcher) jobExecutionContext.getJobDetail().getJobDataMap().get("plugin");
+		Map<String, String> context = (Map<String, String>) jobExecutionContext.getJobDetail().getJobDataMap().get("context");
 		try {
-			iceOasisWatcher.watchIceOasisForStickNShoot();
+			iceOasisWatcher.watchIceOasis(context);
 		} catch (PluginException e) {
 			logger.error("Error when watching for Stick N Shoot", e);
 		}
