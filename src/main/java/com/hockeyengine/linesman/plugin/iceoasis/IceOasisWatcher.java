@@ -62,16 +62,24 @@ public class IceOasisWatcher implements Plugin {
 
 	private Map<String, String> notifications = new HashMap<String, String>();
 
+	private List<Config> configs = new ArrayList<Config>();
+
 	@Override
 	public void init() {
 		logger.info("Initializing plugin iceOasisWatcher");
+		
+		// Configuration of events to watch and notification phone numbers
+		this.configs.add(new Config("Stick N Shoot", null, null, Arrays.asList("+13023454133")));
+		this.configs.add(new Config("Figure Skating FreeStyle 60 Minutes", LocalTime.of(7, 31, 0, 0),
+				LocalTime.of(13, 00, 0, 0), Arrays.asList("+13023454133", "+16504208430")));
+		this.configs.add(new Config("Figure Skating FREESTYLE 90 Minutes", LocalTime.of(7, 01, 0, 0),
+				LocalTime.of(13, 00, 0, 0), Arrays.asList("+13023454133", "+16504208430")));
 		try {
 			scheduler = new StdSchedulerFactory().getScheduler();
 			scheduler.start();
 		} catch (SchedulerException e) {
 			logger.error("Initialize plugin iceOasisWatcher fail", e);
 		}
-
 	}
 
 	@Override
@@ -79,8 +87,11 @@ public class IceOasisWatcher implements Plugin {
 		logger.info("Healthchecking plugin iceOasisWatcher");
 		Map<String, String> context = new HashMap<String, String>();
 		context.put("mode", "test");
+		List<String> executionLog = new ArrayList<String>();
+		
 		watchIceOasis(context);
-		return "Healthcheck success. Last execution log: " + this.lastExecutionLog;
+		notifyViaSMS("HelthCheck", new ArrayList<String>(), Arrays.asList("+13023454133"), executionLog, context);
+		return "Healthcheck success. Configuration: " + this.configs + ". Last execution log: " + this.lastExecutionLog;
 	}
 
 	@Override
@@ -98,6 +109,8 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			throw new PluginException("Stopping plugin iceOasisWatcher fail", e);
 		}
+		report.append(". Configuration: ");
+		report.append(this.configs);
 		report.append(". Last execution log: ");
 		report.append(this.lastExecutionLog);
 		return report.toString();
@@ -148,53 +161,40 @@ public class IceOasisWatcher implements Plugin {
 		String htmlSchedule = getIceOasisHtmlSchedule(executionLog, context);
 		List<DayIO> schedule = parseHtml(htmlSchedule, executionLog, context);
 //		logger.info("IceOasis schedule: " + schedule);
+		
+		for (Config config : this.configs) {
+			watchIceOasisForEvent(config.getEventName(), config.getBefore(), config.getAfter(), config.getPhoneNumbers(), schedule, executionLog, context);
+		}
 
-		// Stick N Shoot
-		String eventNameSNS = "Stick N Shoot";
-		List<String> phoneNumbersSNS = Arrays.asList("+13023454133");
-		List<DayIO> filteredScheduleSNS = filterOpenScheduleByNameAndTime(eventNameSNS, null, null, schedule, executionLog, context);
-		notifyAboutEvents(eventNameSNS, filteredScheduleSNS, phoneNumbersSNS, executionLog, context);
-
-		// Figure Skating FreeStyle 60 Minutes
-		String eventNameFS60 = "Figure Skating FreeStyle 60 Minutes";
-		List<String> phoneNumbersFS60 = Arrays.asList("+13023454133");
-		List<DayIO> filteredScheduleFS60 = filterOpenScheduleByNameAndTime(eventNameFS60, LocalTime.of(7, 31, 0, 0),
-				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
-		notifyAboutEvents(eventNameFS60, filteredScheduleFS60, phoneNumbersFS60, executionLog, context);
-
-		// Figure Skating FREESTYLE 90 Minutes
-		String eventNameFS90 = "Figure Skating FREESTYLE 90 Minutes";
-		List<String> phoneNumbersFS90 = Arrays.asList("+13023454133");
-		List<DayIO> filteredScheduleFS90 = filterOpenScheduleByNameAndTime(eventNameFS90, LocalTime.of(7, 01, 0, 0),
-				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
-		notifyAboutEvents(eventNameFS90, filteredScheduleFS90, phoneNumbersFS90, executionLog, context);
+//		// Stick N Shoot
+//		String eventNameSNS = "Stick N Shoot";
+//		List<String> phoneNumbersSNS = Arrays.asList("+13023454133");
+//		List<DayIO> filteredScheduleSNS = filterOpenScheduleByNameAndTime(eventNameSNS, null, null, schedule,
+//				executionLog, context);
+//		notifyAboutEvents(eventNameSNS, filteredScheduleSNS, phoneNumbersSNS, executionLog, context);
+//
+//		// Figure Skating FreeStyle 60 Minutes
+//		String eventNameFS60 = "Figure Skating FreeStyle 60 Minutes";
+//		List<String> phoneNumbersFS60 = Arrays.asList("+13023454133");
+//		List<DayIO> filteredScheduleFS60 = filterOpenScheduleByNameAndTime(eventNameFS60, LocalTime.of(7, 31, 0, 0),
+//				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
+//		notifyAboutEvents(eventNameFS60, filteredScheduleFS60, phoneNumbersFS60, executionLog, context);
+//
+//		// Figure Skating FREESTYLE 90 Minutes
+//		String eventNameFS90 = "Figure Skating FREESTYLE 90 Minutes";
+//		List<String> phoneNumbersFS90 = Arrays.asList("+13023454133");
+//		List<DayIO> filteredScheduleFS90 = filterOpenScheduleByNameAndTime(eventNameFS90, LocalTime.of(7, 01, 0, 0),
+//				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
+//		notifyAboutEvents(eventNameFS90, filteredScheduleFS90, phoneNumbersFS90, executionLog, context);
 
 		this.lastExecutionLog = executionLog;
 	}
 
-	private List<DayIO> filterOpenScheduleByName(String name, List<DayIO> sourceSchedule, List<String> executionLog,
-			Map<String, String> context) {
-		List<DayIO> filteredSchedule = new ArrayList<DayIO>();
-		int filteredNumberOfSessions = 0;
-
-		for (DayIO day : sourceSchedule) {
-			DayIO newDay = new DayIO(day.getDate());
-			for (SessionIO session : day.getSessions()) {
-				if (name.equalsIgnoreCase(session.getName().trim())
-						&& !SOLD_OUT.equalsIgnoreCase(session.getOpenings().trim())) {
-					newDay.getSessions().add(session);
-					filteredNumberOfSessions++;
-				}
-			}
-			if (!newDay.getSessions().isEmpty()) {
-				filteredSchedule.add(newDay);
-			}
-		}
-		executionLog.add("FilterOpenSchedule=Success: Filtered schedule for name " + name + ": "
-				+ filteredSchedule.size() + " days, " + filteredNumberOfSessions + " sessions");
-		logger.info("Filtered schedule for name {}: {} days, {} sessions", name, filteredSchedule.size(),
-				filteredNumberOfSessions);
-		return filteredSchedule;
+	private void watchIceOasisForEvent(String eventName, LocalTime before, LocalTime after, List<String> phoneNumbers,
+			List<DayIO> schedule, List<String> executionLog, Map<String, String> context) {
+		List<DayIO> filteredSchedule = filterOpenScheduleByNameAndTime(eventName, before, after, schedule, executionLog,
+				context);
+		notifyAboutEvents(eventName, filteredSchedule, phoneNumbers, executionLog, context);
 	}
 
 	private List<DayIO> filterOpenScheduleByNameAndTime(String name, LocalTime before, LocalTime after,
@@ -365,6 +365,48 @@ public class IceOasisWatcher implements Plugin {
 		watchJobDetail.getJobDataMap().put("plugin", this);
 		watchJobDetail.getJobDataMap().put("context", context);
 		return watchJobDetail;
+	}
+
+	class Config {
+
+		private String eventName;
+
+		private LocalTime before;
+
+		private LocalTime after;
+
+		private List<String> phoneNumbers;
+
+		public String getEventName() {
+			return eventName;
+		}
+
+		public LocalTime getBefore() {
+			return before;
+		}
+
+		public LocalTime getAfter() {
+			return after;
+		}
+
+		public List<String> getPhoneNumbers() {
+			return phoneNumbers;
+		}
+
+		public Config(String eventName, LocalTime before, LocalTime after, List<String> phoneNumbers) {
+			super();
+			this.eventName = eventName;
+			this.before = before;
+			this.after = after;
+			this.phoneNumbers = phoneNumbers;
+		}
+
+		@Override
+		public String toString() {
+			return "Config [eventName=" + eventName + ", before=" + before + ", after=" + after + ", phoneNumbers="
+					+ phoneNumbers + "]";
+		}
+
 	}
 
 }

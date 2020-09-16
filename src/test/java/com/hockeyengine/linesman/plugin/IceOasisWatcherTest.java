@@ -26,13 +26,19 @@ class IceOasisWatcherTest {
 		iceOasisWatcher.init();
 	}
 
-//	@Test
+	@Test
 	void testGetReport() throws PluginException {
 		String report = iceOasisWatcher.getReport();
 		logger.info("IceOasisWatcher report: " + report);
 	}
-
+	
 //	@Test
+	void testHelthCheck() throws PluginException {
+		String result = iceOasisWatcher.helthCheck();
+		logger.info("IceOasisWatcher helthcheck: " + result);
+	}
+
+	@Test
 	void testInit() {
 		iceOasisWatcher.init();
 	}
@@ -42,19 +48,19 @@ class IceOasisWatcherTest {
 		iceOasisWatcher.start();
 	}
 
-//	@Test
+	@Test
 	void testStop() throws PluginException {
 		iceOasisWatcher.stop();
 	}
 	
-	@Test
+//	@Test
 	void testWatchIceOasis_1() throws PluginException {
 		Map<String, String> context = new HashMap<String, String>();
 		context.put("mode", "test");
 		iceOasisWatcher.watchIceOasis(context);
 	}
 	
-	@Test
+//	@Test
 	void testWatchIceOasis_2() throws PluginException {
 		Map<String, String> context = new HashMap<String, String>();
 		context.put("mode", "test");
