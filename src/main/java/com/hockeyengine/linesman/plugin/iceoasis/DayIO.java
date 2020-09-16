@@ -12,17 +12,17 @@ import java.util.List;
  */
 public class DayIO {
 	
-	private String Date;
+	private String date;
 	
 	private List<SessionIO> sessions = new ArrayList<SessionIO>();
 
 	public DayIO(String date) {
 		super();
-		Date = date;
+		this.date = date;
 	}
 
 	public String getDate() {
-		return Date;
+		return date;
 	}
 
 	public List<SessionIO> getSessions() {
@@ -31,7 +31,7 @@ public class DayIO {
 
 	@Override
 	public String toString() {
-		return "DayIO [Date=" + Date + ", sessions=" + sessions + "]";
+		return "DayIO [date=" + date + ", sessions=" + sessions + "]";
 	}
 	
 }

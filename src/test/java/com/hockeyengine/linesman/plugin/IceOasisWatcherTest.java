@@ -1,5 +1,8 @@
 package com.hockeyengine.linesman.plugin;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -44,16 +47,45 @@ class IceOasisWatcherTest {
 		iceOasisWatcher.stop();
 	}
 	
-//	@Test
-	void testWstchIceOasis() throws PluginException {
+	@Test
+	void testWatchIceOasis_1() throws PluginException {
 		Map<String, String> context = new HashMap<String, String>();
 		context.put("mode", "test");
+		iceOasisWatcher.watchIceOasis(context);
+	}
+	
+	@Test
+	void testWatchIceOasis_2() throws PluginException {
+		Map<String, String> context = new HashMap<String, String>();
+		context.put("mode", "test");
+		iceOasisWatcher.watchIceOasis(context);
 		iceOasisWatcher.watchIceOasis(context);
 	}
 	
 //	@Test
 	void testSendSMSMessage() {
 		iceOasisWatcher.sendSMSMessage("Test message from linesman", "+13023454133");
+	}
+	
+	@Test
+	void testParseTime_1() {
+		LocalTime localTime = iceOasisWatcher.parseStartTime("6:30 A - 8:00 A");
+		logger.info("LocalTime: " + localTime);
+		assertEquals("06:30", localTime.toString());
+	}
+	
+	@Test
+	void testParseTime_2() {
+		LocalTime localTime = iceOasisWatcher.parseStartTime("6:30 P - 8:00 P");
+		logger.info("LocalTime: " + localTime);
+		assertEquals("18:30", localTime.toString());
+	}
+	
+	@Test
+	void testParseTime_3() {
+		LocalTime localTime = iceOasisWatcher.parseStartTime("12:30 P - 2:00 P");
+		logger.info("LocalTime: " + localTime);
+		assertEquals("12:30", localTime.toString());
 	}
 	
 

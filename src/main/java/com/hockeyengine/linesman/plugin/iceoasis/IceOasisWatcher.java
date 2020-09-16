@@ -3,10 +3,13 @@
  */
 package com.hockeyengine.linesman.plugin.iceoasis;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringTokenizer;
 import java.util.concurrent.TimeUnit;
 
 import org.jsoup.Jsoup;
@@ -38,8 +41,6 @@ import com.hockeyengine.quickshift.core.PluginException;
  * @author mpietras
  *
  */
-//TODO 2. single notification
-//TODO 3. fs filtering
 @Component
 public class IceOasisWatcher implements Plugin {
 
@@ -48,7 +49,7 @@ public class IceOasisWatcher implements Plugin {
 	private static final String SCHEDULE_URL = "https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1";
 
 	private static final String SOLD_OUT = "SOLD OUT!";
-	
+
 	private static final String CRON_EXPRESSION = "0 0/5 * * * ?";
 
 	private RestTemplate restTemplate = new RestTemplate();
@@ -56,8 +57,10 @@ public class IceOasisWatcher implements Plugin {
 	private AmazonSNSClient snsClient = new AmazonSNSClient();
 
 	private Scheduler scheduler;
-	
+
 	private List<String> lastExecutionLog = new ArrayList<String>();
+
+	private Map<String, String> notifications = new HashMap<String, String>();
 
 	@Override
 	public void init() {
@@ -70,7 +73,7 @@ public class IceOasisWatcher implements Plugin {
 		}
 
 	}
-	
+
 	@Override
 	public String helthCheck() throws PluginException {
 		logger.info("Healthchecking plugin iceOasisWatcher");
@@ -79,12 +82,13 @@ public class IceOasisWatcher implements Plugin {
 		watchIceOasis(context);
 		return "Healthcheck success. Last execution log: " + this.lastExecutionLog;
 	}
-	
+
 	@Override
 	public String getReport() throws PluginException {
 		logger.info("Getting report from plugin iceOasisWatcher");
 		Map<String, String> context = new HashMap<String, String>();
-		
+		context.put("mode", "report");
+
 		StringBuilder report = new StringBuilder();
 		report.append("Cron job set to ");
 		report.append(CRON_EXPRESSION);
@@ -103,6 +107,7 @@ public class IceOasisWatcher implements Plugin {
 	public String start() throws PluginException {
 		logger.info("Starting plugin iceOasisWatcher");
 		Map<String, String> context = new HashMap<String, String>();
+		context.put("mode", "cron");
 
 		Trigger trigger = TriggerBuilder.newTrigger().withIdentity("cronTrigger1", "group1")
 				.withSchedule(CronScheduleBuilder.cronSchedule(CRON_EXPRESSION)).build();
@@ -123,7 +128,8 @@ public class IceOasisWatcher implements Plugin {
 	public String stop() throws PluginException {
 		logger.info("Stopping plugin iceOasisWatcher");
 		Map<String, String> context = new HashMap<String, String>();
-		
+		context.put("mode", "cron");
+
 		JobDetail watchJobDetail = createWatchJobDetail(context);
 		try {
 			if (this.scheduler.checkExists(watchJobDetail.getKey())) {
@@ -134,87 +140,40 @@ public class IceOasisWatcher implements Plugin {
 		}
 		return "IceOasisWatcher stopped";
 	}
-	
+
 	public void watchIceOasis(Map<String, String> context) throws PluginException {
 		List<String> executionLog = new ArrayList<String>();
 		executionLog.add("Context=" + context.toString());
-		
+
 		String htmlSchedule = getIceOasisHtmlSchedule(executionLog, context);
-		List<DayIO> schedule = htmlToSchedule(htmlSchedule, executionLog, context);
+		List<DayIO> schedule = parseHtml(htmlSchedule, executionLog, context);
 //		logger.info("IceOasis schedule: " + schedule);
-		
+
 		// Stick N Shoot
-		String eventName = "Stick N Shoot";
-		List<DayIO> filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
-		if (filteredSchedule.isEmpty()) {
-			executionLog.add("Notification=There is nothing to notify about event " + eventName);
-			logger.info("There is nothing to notify about event {}", eventName);
-		} else {
-			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
-		}
-		
+		String eventNameSNS = "Stick N Shoot";
+		List<String> phoneNumbersSNS = Arrays.asList("+13023454133");
+		List<DayIO> filteredScheduleSNS = filterOpenScheduleByNameAndTime(eventNameSNS, null, null, schedule, executionLog, context);
+		notifyAboutEvents(eventNameSNS, filteredScheduleSNS, phoneNumbersSNS, executionLog, context);
+
 		// Figure Skating FreeStyle 60 Minutes
-		eventName = "Figure Skating FreeStyle 60 Minutes";
-		filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
-		if (filteredSchedule.isEmpty()) {
-			executionLog.add("Notification=There is nothing to notify about event " + eventName);
-			logger.info("There is nothing to notify about event {}", eventName);
-		} else {
-			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
-		}
-		
+		String eventNameFS60 = "Figure Skating FreeStyle 60 Minutes";
+		List<String> phoneNumbersFS60 = Arrays.asList("+13023454133");
+		List<DayIO> filteredScheduleFS60 = filterOpenScheduleByNameAndTime(eventNameFS60, LocalTime.of(7, 31, 0, 0),
+				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
+		notifyAboutEvents(eventNameFS60, filteredScheduleFS60, phoneNumbersFS60, executionLog, context);
+
 		// Figure Skating FREESTYLE 90 Minutes
-		eventName = "Skating FREESTYLE 90 Minutes";
-		filteredSchedule = filterOpenScheduleByName(eventName, schedule, executionLog, context);
-		if (filteredSchedule.isEmpty()) {
-			executionLog.add("Notification=There is nothing to notify about event " + eventName);
-			logger.info("There is nothing to notify about event {}", eventName);
-		} else {
-			notifyAboutEvents(eventName, filteredSchedule, executionLog, context);
-		}
+		String eventNameFS90 = "Figure Skating FREESTYLE 90 Minutes";
+		List<String> phoneNumbersFS90 = Arrays.asList("+13023454133");
+		List<DayIO> filteredScheduleFS90 = filterOpenScheduleByNameAndTime(eventNameFS90, LocalTime.of(7, 01, 0, 0),
+				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
+		notifyAboutEvents(eventNameFS90, filteredScheduleFS90, phoneNumbersFS90, executionLog, context);
+
 		this.lastExecutionLog = executionLog;
-		
 	}
 
-//	public void watchIceOasisForStickNShoot() throws PluginException {
-//		String eventName = "Stick N Shoot";
-//		List<DayIO> schedule = checkScheduleFor(eventName);
-//		if (schedule.isEmpty()) {
-//			logger.info("There is nothing to notify about event {}", eventName);
-//		} else {
-//			notifyAboutEvents(eventName, schedule);
-//		}
-//	}
-//
-//	public void watchIceOasisForFreestyle() throws PluginException {
-//		String eventName = "Figure Skating FreeStyle 60 Minutes";
-//		List<DayIO> schedule = checkScheduleFor(eventName);
-//
-//		String eventName2 = "Figure Skating FREESTYLE 90 Minutes";
-//		List<DayIO> schedule2 = checkScheduleFor(eventName2);
-//		
-//		if (schedule.isEmpty() && schedule2.isEmpty()) {
-//			logger.info("There is nothing to notify about event {}", eventName);
-//		} else {
-//			notifyAboutEvents(eventName + " / " + eventName2, schedule);
-//		}
-//	}
-
-//	private List<DayIO> checkScheduleFor(String eventName) throws PluginException {
-//		logger.info("Checking IceOasis schedule");
-//		Stopwatch stopwatch = Stopwatch.createStarted();
-//		String htmlSchedule = getIceOasisHtmlSchedule();
-//		List<DayIO> schedule = htmlToSchedule(htmlSchedule);
-////		logger.info("IceOasis schedule: " + schedule);
-//
-//		List<DayIO> filteredSchedule = filterOpenScheduleByName(eventName, schedule);
-////		logger.info("Filtered schedule: " + filteredSchedule);
-//
-//		logger.info("Checking IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
-//		return filteredSchedule;
-//	}
-
-	private List<DayIO> filterOpenScheduleByName(String name, List<DayIO> sourceSchedule, List<String> executionLog, Map<String, String> context) {
+	private List<DayIO> filterOpenScheduleByName(String name, List<DayIO> sourceSchedule, List<String> executionLog,
+			Map<String, String> context) {
 		List<DayIO> filteredSchedule = new ArrayList<DayIO>();
 		int filteredNumberOfSessions = 0;
 
@@ -231,26 +190,114 @@ public class IceOasisWatcher implements Plugin {
 				filteredSchedule.add(newDay);
 			}
 		}
-		executionLog.add("FilterOpenSchedule=Success: Filtered schedule for name " + name + ": " + filteredSchedule.size() + " days, " + filteredNumberOfSessions + " sessions");
+		executionLog.add("FilterOpenSchedule=Success: Filtered schedule for name " + name + ": "
+				+ filteredSchedule.size() + " days, " + filteredNumberOfSessions + " sessions");
 		logger.info("Filtered schedule for name {}: {} days, {} sessions", name, filteredSchedule.size(),
 				filteredNumberOfSessions);
 		return filteredSchedule;
 	}
 
-	private void notifyAboutEvents(String eventName, List<DayIO> schedule, List<String> executionLog, Map<String, String> context) {
+	private List<DayIO> filterOpenScheduleByNameAndTime(String name, LocalTime before, LocalTime after,
+			List<DayIO> sourceSchedule, List<String> executionLog, Map<String, String> context) {
+		List<DayIO> filteredSchedule = new ArrayList<DayIO>();
+		int filteredNumberOfSessions = 0;
+
+		for (DayIO day : sourceSchedule) {
+			DayIO newDay = new DayIO(day.getDate());
+			for (SessionIO session : day.getSessions()) {
+				LocalTime sessionStartTime = parseStartTime(session.getTime());
+				if (name.equalsIgnoreCase(session.getName().trim())
+//						&& !SOLD_OUT.equalsIgnoreCase(session.getOpenings().trim())
+						&& ((before == null || sessionStartTime.isBefore(before))
+								|| (after == null || sessionStartTime.isAfter(after)))) {
+					newDay.getSessions().add(session);
+					filteredNumberOfSessions++;
+				}
+			}
+			if (!newDay.getSessions().isEmpty()) {
+				filteredSchedule.add(newDay);
+			}
+		}
+		executionLog.add("FilterOpenSchedule=Success: Filtered schedule for name " + name + ": "
+				+ filteredSchedule.size() + " days, " + filteredNumberOfSessions + " sessions");
+		logger.info("Filtered schedule for name {}: {} days, {} sessions", name, filteredSchedule.size(),
+				filteredNumberOfSessions);
+		return filteredSchedule;
+	}
+
+	public LocalTime parseStartTime(String timeAsString) {
+		StringTokenizer startTimeWithAPTokanizer = new StringTokenizer(timeAsString, " :");
+		String hoursAsString = (String) startTimeWithAPTokanizer.nextElement();
+		String minutesAsString = (String) startTimeWithAPTokanizer.nextElement();
+		String ap = (String) startTimeWithAPTokanizer.nextElement();
+//		logger.info("Start Time: {} {} {}", hoursAsString, minutesAsString, ap);
+
+		int hours = Integer.parseInt(hoursAsString);
+		int minutes = Integer.parseInt(minutesAsString);
+
+		if ("P".equalsIgnoreCase(ap) && hours != 12) {
+			hours = hours + 12;
+		}
+
+		LocalTime startTime = LocalTime.of(hours, minutes, 0, 0);
+		return startTime;
+	}
+
+	private void notifyAboutEvents(String eventName, List<DayIO> schedule, List<String> phoneNumbers,
+			List<String> executionLog, Map<String, String> context) {
 		logger.info("Notifing about event {}, schedule {}", eventName, schedule);
+		if (schedule.isEmpty()) {
+			executionLog.add("NotificationSMS=There is nothing to notify about event " + eventName);
+			logger.info("There is nothing to notify about event {}", eventName);
+		} else {
+			List<String> sessions = getSessions(schedule);
+			List<String> sessionsToNotify = new ArrayList<String>();
+			for (String sessionId : sessions) {
+				if (!this.notifications.containsKey(sessionId)) {
+					sessionsToNotify.add(sessionId);
+				}
+			}
+			if (sessionsToNotify.isEmpty()) {
+				executionLog.add("NotificationSMS=Notifications for all " + sessions.size() + " events " + eventName
+						+ "sent before ");
+				logger.info("Notifications for all {} events {} sent before", sessions.size(), eventName);
+			} else {
+				notifyViaSMS(eventName, sessionsToNotify, phoneNumbers, executionLog, context);
+				for (String sessionId : sessionsToNotify) {
+					this.notifications.put(sessionId, "");
+				}
+			}
+		}
+	}
+
+	private List<String> getSessions(List<DayIO> schedule) {
+		List<String> sessions = new ArrayList<String>();
+		for (DayIO dayIO : schedule) {
+			for (SessionIO sessionIO : dayIO.getSessions()) {
+				sessions.add(dayIO.getDate() + " :: " + sessionIO.getTime() + " :: " + sessionIO.getName());
+			}
+		}
+		return sessions;
+	}
+
+	private void notifyViaSMS(String eventName, List<String> sessions, List<String> phoneNumbers,
+			List<String> executionLog, Map<String, String> context) {
+		logger.info("Notifing via SMS {}, sessions {}", eventName, sessions);
 		StringBuilder message = new StringBuilder();
 		if ("test".equalsIgnoreCase(context.get("mode"))) {
 			message.append("TEST ");
 		}
-		message.append("HockeyEngine Linesman found open events ");
+		message.append("HockeyEngine Linesman found ");
+		message.append(sessions.size());
+		message.append(" new events ");
 		message.append(eventName);
 		message.append(". Schedule at ");
 		message.append(SCHEDULE_URL);
 
-		String phoneNumber = "+13023454133";
-		sendSMSMessage(message.toString(), phoneNumber);
-		executionLog.add("Notification=Success");
+		for (String phoneNumber : phoneNumbers) {
+			sendSMSMessage(message.toString(), phoneNumber);
+		}
+		executionLog.add("NotificationSMS=Success: " + sessions.size() + " new events " + phoneNumbers);
 	}
 
 	public void sendSMSMessage(String message, String phoneNumber) {
@@ -266,7 +313,8 @@ public class IceOasisWatcher implements Plugin {
 		logger.info("Send SMS message result: {}", result);
 	}
 
-	private String getIceOasisHtmlSchedule(List<String> executionLog, Map<String, String> context) throws PluginException {
+	private String getIceOasisHtmlSchedule(List<String> executionLog, Map<String, String> context)
+			throws PluginException {
 		try {
 			Stopwatch stopwatch = Stopwatch.createStarted();
 			String html = restTemplate.getForObject(SCHEDULE_URL, String.class);
@@ -279,7 +327,7 @@ public class IceOasisWatcher implements Plugin {
 		}
 	}
 
-	private List<DayIO> htmlToSchedule(String html, List<String> executionLog, Map<String, String> context) {
+	private List<DayIO> parseHtml(String html, List<String> executionLog, Map<String, String> context) {
 		List<DayIO> days = new ArrayList<DayIO>();
 		Document doc = Jsoup.parse(html);
 		Elements tableBody = doc.select("tbody");
@@ -306,7 +354,8 @@ public class IceOasisWatcher implements Plugin {
 //				logger.info("DayIO: " + dayIO);
 			}
 		}
-		executionLog.add("ParseHTML=Success: Found schedule for " + days.size() + " days, " + totalNumberOfSessions + " sessions in total");
+		executionLog.add("ParseHTML=Success: Found schedule for " + days.size() + " days, " + totalNumberOfSessions
+				+ " sessions in total");
 		logger.info("Found schedule for {} days, {} sessions in total", days.size(), totalNumberOfSessions);
 		return days;
 	}
