@@ -3,6 +3,7 @@
  */
 package com.hockeyengine.linesman.plugin.iceoasis;
 
+import java.sql.Timestamp;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -80,6 +81,7 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			logger.error("Initialize plugin iceOasisWatcher fail", e);
 		}
+		logger.info("Plugin iceOasisWatcher initialization success");
 	}
 
 	@Override
@@ -91,6 +93,7 @@ public class IceOasisWatcher implements Plugin {
 		
 		watchIceOasis(context);
 		notifyViaSMS("HelthCheck", new ArrayList<String>(), Arrays.asList("+13023454133"), executionLog, context);
+		logger.info("Healthcheck plugin iceOasisWatcher success");
 		return "Healthcheck success. Configuration: " + this.configs + ". Last execution log: " + this.lastExecutionLog;
 	}
 
@@ -109,10 +112,13 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			throw new PluginException("Stopping plugin iceOasisWatcher fail", e);
 		}
-		report.append(". Configuration: ");
+		report.append("<br><br>Configuration:<br>");
 		report.append(this.configs);
-		report.append(". Last execution log: ");
+		report.append("<br><br>Last execution log:<br>");
 		report.append(this.lastExecutionLog);
+		report.append("<br><br>Notification sent:<br>");
+		report.append(this.notifications);
+		logger.info("Get report for plugin iceOasisWatcher success");
 		return report.toString();
 	}
 
@@ -133,7 +139,7 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			throw new PluginException("Starting plugin iceOasisWatcher fail", e);
 		}
-
+		logger.info("Start plugin iceOasisWatcher success");
 		return "IceOasisWatcher started";
 	}
 
@@ -151,12 +157,16 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			throw new PluginException("Stopping plugin iceOasisWatcher fail", e);
 		}
+		logger.info("Stop plugin iceOasisWatcher success");
 		return "IceOasisWatcher stopped";
 	}
 
 	public void watchIceOasis(Map<String, String> context) throws PluginException {
+		logger.info("Watching IceOasis plugin");
+		Stopwatch stopwatch = Stopwatch.createStarted();
 		List<String> executionLog = new ArrayList<String>();
 		executionLog.add("Context=" + context.toString());
+		executionLog.add("Timestamp=" + new Timestamp(System.currentTimeMillis()));
 
 		String htmlSchedule = getIceOasisHtmlSchedule(executionLog, context);
 		List<DayIO> schedule = parseHtml(htmlSchedule, executionLog, context);
@@ -165,29 +175,8 @@ public class IceOasisWatcher implements Plugin {
 		for (Config config : this.configs) {
 			watchIceOasisForEvent(config.getEventName(), config.getBefore(), config.getAfter(), config.getPhoneNumbers(), schedule, executionLog, context);
 		}
-
-//		// Stick N Shoot
-//		String eventNameSNS = "Stick N Shoot";
-//		List<String> phoneNumbersSNS = Arrays.asList("+13023454133");
-//		List<DayIO> filteredScheduleSNS = filterOpenScheduleByNameAndTime(eventNameSNS, null, null, schedule,
-//				executionLog, context);
-//		notifyAboutEvents(eventNameSNS, filteredScheduleSNS, phoneNumbersSNS, executionLog, context);
-//
-//		// Figure Skating FreeStyle 60 Minutes
-//		String eventNameFS60 = "Figure Skating FreeStyle 60 Minutes";
-//		List<String> phoneNumbersFS60 = Arrays.asList("+13023454133");
-//		List<DayIO> filteredScheduleFS60 = filterOpenScheduleByNameAndTime(eventNameFS60, LocalTime.of(7, 31, 0, 0),
-//				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
-//		notifyAboutEvents(eventNameFS60, filteredScheduleFS60, phoneNumbersFS60, executionLog, context);
-//
-//		// Figure Skating FREESTYLE 90 Minutes
-//		String eventNameFS90 = "Figure Skating FREESTYLE 90 Minutes";
-//		List<String> phoneNumbersFS90 = Arrays.asList("+13023454133");
-//		List<DayIO> filteredScheduleFS90 = filterOpenScheduleByNameAndTime(eventNameFS90, LocalTime.of(7, 01, 0, 0),
-//				LocalTime.of(13, 00, 0, 0), schedule, executionLog, context);
-//		notifyAboutEvents(eventNameFS90, filteredScheduleFS90, phoneNumbersFS90, executionLog, context);
-
 		this.lastExecutionLog = executionLog;
+		logger.info("Watch IceOasis success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
 	}
 
 	private void watchIceOasisForEvent(String eventName, LocalTime before, LocalTime after, List<String> phoneNumbers,
@@ -207,7 +196,7 @@ public class IceOasisWatcher implements Plugin {
 			for (SessionIO session : day.getSessions()) {
 				LocalTime sessionStartTime = parseStartTime(session.getTime());
 				if (name.equalsIgnoreCase(session.getName().trim())
-//						&& !SOLD_OUT.equalsIgnoreCase(session.getOpenings().trim())
+						&& !SOLD_OUT.equalsIgnoreCase(session.getOpenings().trim())
 						&& ((before == null || sessionStartTime.isBefore(before))
 								|| (after == null || sessionStartTime.isAfter(after)))) {
 					newDay.getSessions().add(session);
@@ -259,7 +248,7 @@ public class IceOasisWatcher implements Plugin {
 			}
 			if (sessionsToNotify.isEmpty()) {
 				executionLog.add("NotificationSMS=Notifications for all " + sessions.size() + " events " + eventName
-						+ "sent before ");
+						+ " sent before");
 				logger.info("Notifications for all {} events {} sent before", sessions.size(), eventName);
 			} else {
 				notifyViaSMS(eventName, sessionsToNotify, phoneNumbers, executionLog, context);
@@ -319,10 +308,10 @@ public class IceOasisWatcher implements Plugin {
 			Stopwatch stopwatch = Stopwatch.createStarted();
 			String html = restTemplate.getForObject(SCHEDULE_URL, String.class);
 			logger.info("Getting IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
-			executionLog.add("GetIceOawsisSchedule=Success");
+			executionLog.add("GetIceOasisSchedule=Success");
 			return html;
 		} catch (Exception e) {
-			executionLog.add("GetIceOawsisSchedule=Error");
+			executionLog.add("GetIceOasisSchedule=Error");
 			throw new PluginException("Getting IceOasis schedule fail", e);
 		}
 	}
