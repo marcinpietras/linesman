@@ -28,6 +28,7 @@ import org.quartz.impl.StdSchedulerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import com.amazonaws.services.sns.AmazonSNSClient;
@@ -47,8 +48,6 @@ public class IceOasisWatcher implements Plugin {
 
 	private Logger logger = LoggerFactory.getLogger(IceOasisWatcher.class);
 
-	private static final String SCHEDULE_URL = "https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1";
-
 	private static final String SOLD_OUT = "SOLD OUT!";
 
 	private static final String CRON_EXPRESSION = "0 0/5 * * * ?";
@@ -62,13 +61,21 @@ public class IceOasisWatcher implements Plugin {
 	private List<String> lastExecutionLog = new ArrayList<String>();
 
 	private Map<String, String> notifications = new HashMap<String, String>();
+	
+	private List<String> notificationsToDisplay = new ArrayList<String>();
 
 	private List<Config> configs = new ArrayList<Config>();
+
+	private List<String> scheduleUrls = new ArrayList<String>();
 
 	@Override
 	public void init() {
 		logger.info("Initializing plugin iceOasisWatcher");
 		
+		// Configuration of schedule urls
+		this.scheduleUrls.add("https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1");
+		this.scheduleUrls.add("https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1&webruleid=11");
+
 		// Configuration of events to watch and notification phone numbers
 		this.configs.add(new Config("Stick N Shoot", null, null, Arrays.asList("+13023454133")));
 		this.configs.add(new Config("Figure Skating FreeStyle 60 Minutes", LocalTime.of(7, 31, 0, 0),
@@ -90,7 +97,7 @@ public class IceOasisWatcher implements Plugin {
 		Map<String, String> context = new HashMap<String, String>();
 		context.put("mode", "test");
 		List<String> executionLog = new ArrayList<String>();
-		
+
 		watchIceOasis(context);
 		notifyViaSMS("HelthCheck", new ArrayList<String>(), Arrays.asList("+13023454133"), executionLog, context);
 		logger.info("Healthcheck plugin iceOasisWatcher success");
@@ -112,12 +119,14 @@ public class IceOasisWatcher implements Plugin {
 		} catch (SchedulerException e) {
 			throw new PluginException("Stopping plugin iceOasisWatcher fail", e);
 		}
+		report.append("<br><br>Schedule Urls:<br>");
+		report.append(this.scheduleUrls);
 		report.append("<br><br>Configuration:<br>");
 		report.append(this.configs);
 		report.append("<br><br>Last execution log:<br>");
 		report.append(this.lastExecutionLog);
 		report.append("<br><br>Notification sent:<br>");
-		report.append(this.notifications);
+		report.append(this.notificationsToDisplay);
 		logger.info("Get report for plugin iceOasisWatcher success");
 		return report.toString();
 	}
@@ -168,12 +177,17 @@ public class IceOasisWatcher implements Plugin {
 		executionLog.add("Context=" + context.toString());
 		executionLog.add("Timestamp=" + new Timestamp(System.currentTimeMillis()));
 
-		String htmlSchedule = getIceOasisHtmlSchedule(executionLog, context);
-		List<DayIO> schedule = parseHtml(htmlSchedule, executionLog, context);
+		List<String> htmlSchedules = getIceOasisHtmlSchedule(executionLog, context);
+		List<DayIO> schedule = new ArrayList<DayIO>();
+		for (String htmlSchedule : htmlSchedules) {
+			List<DayIO> schedulePerMonth = parseHtml(htmlSchedule, executionLog, context);
+			schedule.addAll(schedulePerMonth);
+		}
 //		logger.info("IceOasis schedule: " + schedule);
-		
+
 		for (Config config : this.configs) {
-			watchIceOasisForEvent(config.getEventName(), config.getBefore(), config.getAfter(), config.getPhoneNumbers(), schedule, executionLog, context);
+			watchIceOasisForEvent(config.getEventName(), config.getBefore(), config.getAfter(),
+					config.getPhoneNumbers(), schedule, executionLog, context);
 		}
 		this.lastExecutionLog = executionLog;
 		logger.info("Watch IceOasis success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
@@ -254,6 +268,7 @@ public class IceOasisWatcher implements Plugin {
 				notifyViaSMS(eventName, sessionsToNotify, phoneNumbers, executionLog, context);
 				for (String sessionId : sessionsToNotify) {
 					this.notifications.put(sessionId, "");
+					this.notificationsToDisplay.add(sessionId);
 				}
 			}
 		}
@@ -280,8 +295,10 @@ public class IceOasisWatcher implements Plugin {
 		message.append(sessions.size());
 		message.append(" new events ");
 		message.append(eventName);
-		message.append(". Schedule at ");
-		message.append(SCHEDULE_URL);
+		message.append(": ");
+		message.append(sessions);
+		message.append(" Schedule at ");
+		message.append(this.scheduleUrls.get(0));
 
 		for (String phoneNumber : phoneNumbers) {
 			sendSMSMessage(message.toString(), phoneNumber);
@@ -302,17 +319,36 @@ public class IceOasisWatcher implements Plugin {
 		logger.info("Send SMS message result: {}", result);
 	}
 
-	private String getIceOasisHtmlSchedule(List<String> executionLog, Map<String, String> context)
+	private List<String> getIceOasisHtmlSchedule(List<String> executionLog, Map<String, String> context)
+			throws PluginException {
+		List<String> htmls = new ArrayList<String>();
+		Stopwatch stopwatch = Stopwatch.createStarted();
+		try {
+			for (String scheduleUrl : this.scheduleUrls) {
+				String html = getIceOasisHtmlScheduleFromURL(scheduleUrl, executionLog, context);
+				if (!StringUtils.isEmpty(html)) {
+					htmls.add(html);
+				}
+			}
+			logger.info("Getting IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
+			return htmls;
+		} catch (Exception e) {
+			throw new PluginException("Getting IceOasis schedule from URL fail", e);
+		}
+	}
+
+	private String getIceOasisHtmlScheduleFromURL(String url, List<String> executionLog, Map<String, String> context)
 			throws PluginException {
 		try {
 			Stopwatch stopwatch = Stopwatch.createStarted();
-			String html = restTemplate.getForObject(SCHEDULE_URL, String.class);
-			logger.info("Getting IceOasis schedule success in {} ms ", stopwatch.elapsed(TimeUnit.SECONDS));
-			executionLog.add("GetIceOasisSchedule=Success");
+			String html = restTemplate.getForObject(url, String.class);
+			logger.info("Getting IceOasis schedule from URL {} success in {} ms ", url,
+					stopwatch.elapsed(TimeUnit.SECONDS));
+			executionLog.add("GetIceOasisScheduleFromURL=Success");
 			return html;
 		} catch (Exception e) {
-			executionLog.add("GetIceOasisSchedule=Error");
-			throw new PluginException("Getting IceOasis schedule fail", e);
+			executionLog.add("GetIceOasisScheduleFromURL=Error");
+			throw new PluginException("Getting IceOasis schedule from URL fail", e);
 		}
 	}
 
@@ -325,8 +361,21 @@ public class IceOasisWatcher implements Plugin {
 		int totalNumberOfSessions = 0;
 		for (Element tableRow : tableBody.first().select("tr")) {
 			Elements tableData = tableRow.select("td");
-			Elements elements = tableData.get(0).getElementsByClass("alert alert-info");
-			if (elements.isEmpty()) {
+			if (tableData.size() == 1) {
+				// Table row is one liner
+				// Checking if table row is day header or no sessions message
+				Elements elements = tableData.get(0).getElementsByClass("alert alert-info");
+				if (!elements.isEmpty()) {
+					// Table row is day header
+					String date = tableData.get(0).text();
+					dayIO = new DayIO(date);
+					days.add(dayIO);
+//					logger.info("DayIO: " + dayIO);
+				} else {
+					// Table row is no sessions message
+				}
+			} else {
+				// Table row is session 
 				String time = tableData.get(1).text();
 				String openings = tableData.get(2).text();
 				String name = tableData.get(3).text();
@@ -336,12 +385,26 @@ public class IceOasisWatcher implements Plugin {
 				totalNumberOfSessions++;
 				dayIO.getSessions().add(sessionIO);
 //				logger.info("SessionIO: " + sessionIO);
-			} else {
-				String date = tableData.get(0).text();
-				dayIO = new DayIO(date);
-				days.add(dayIO);
-//				logger.info("DayIO: " + dayIO);
 			}
+			
+			
+//			Elements elements = tableData.get(0).getElementsByClass("alert alert-info");
+//			if (elements.isEmpty()) {
+//				String time = tableData.get(1).text();
+//				String openings = tableData.get(2).text();
+//				String name = tableData.get(3).text();
+//				String length = tableData.get(4).text();
+//				String price = tableData.get(6).text();
+//				SessionIO sessionIO = new SessionIO(time, openings, name, length, price);
+//				totalNumberOfSessions++;
+//				dayIO.getSessions().add(sessionIO);
+////				logger.info("SessionIO: " + sessionIO);
+//			} else {
+//				String date = tableData.get(0).text();
+//				dayIO = new DayIO(date);
+//				days.add(dayIO);
+////				logger.info("DayIO: " + dayIO);
+//			}
 		}
 		executionLog.add("ParseHTML=Success: Found schedule for " + days.size() + " days, " + totalNumberOfSessions
 				+ " sessions in total");
