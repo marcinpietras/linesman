@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import com.amazonaws.services.sns.AmazonSNS;
 import com.amazonaws.services.sns.AmazonSNSClient;
 import com.amazonaws.services.sns.model.MessageAttributeValue;
 import com.amazonaws.services.sns.model.PublishRequest;
@@ -54,7 +55,7 @@ public class IceOasisWatcher implements Plugin {
 
 	private RestTemplate restTemplate = new RestTemplate();
 
-	private AmazonSNSClient snsClient = new AmazonSNSClient();
+	private AmazonSNS snsClient = AmazonSNSClient.builder().withRegion("us-west-2").build();
 
 	private Scheduler scheduler;
 
@@ -295,9 +296,9 @@ public class IceOasisWatcher implements Plugin {
 		message.append(sessions.size());
 		message.append(" new events ");
 		message.append(eventName);
-		message.append(": ");
-		message.append(sessions);
-		message.append(" Schedule at ");
+//		message.append(": ");
+//		message.append(sessions);
+		message.append(". Schedule at ");
 		message.append(this.scheduleUrls.get(0));
 
 		for (String phoneNumber : phoneNumbers) {
