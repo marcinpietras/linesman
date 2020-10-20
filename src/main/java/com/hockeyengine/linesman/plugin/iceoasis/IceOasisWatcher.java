@@ -75,7 +75,7 @@ public class IceOasisWatcher implements Plugin {
 		
 		// Configuration of schedule urls
 		this.scheduleUrls.add("https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1");
-		this.scheduleUrls.add("https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1&webruleid=11");
+		this.scheduleUrls.add("https://iceoasis.frontline-connect.com/sessionslist.cfm?fac=iceoasis&facid=1&webruleid=12");
 
 		// Configuration of events to watch and notification phone numbers
 		this.configs.add(new Config("Stick N Shoot", null, null, Arrays.asList("+13023454133")));
