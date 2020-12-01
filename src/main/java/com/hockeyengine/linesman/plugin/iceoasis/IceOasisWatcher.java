@@ -81,6 +81,8 @@ public class IceOasisWatcher implements Plugin {
 		this.configs.add(new Config("Stick N Shoot", null, null, Arrays.asList("+13023454133")));
 		this.configs.add(new Config("Figure Skating FreeStyle 60 Minutes", LocalTime.of(7, 31, 0, 0),
 				LocalTime.of(13, 00, 0, 0), Arrays.asList("+13023454133", "+16504208430")));
+		this.configs.add(new Config("Figure Skating FreeStyle-1 &up 60 min", LocalTime.of(7, 31, 0, 0),
+				LocalTime.of(13, 00, 0, 0), Arrays.asList("+13023454133", "+16504208430")));
 		this.configs.add(new Config("Figure Skating FREESTYLE 90 Minutes", LocalTime.of(7, 01, 0, 0),
 				LocalTime.of(13, 00, 0, 0), Arrays.asList("+13023454133", "+16504208430")));
 		try {
